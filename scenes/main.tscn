@@ -1,0 +1,103 @@
+[gd_scene format=3 uid="uid://bh6dto8rtq13b"]
+
+[ext_resource type="Script" uid="uid://dh34ce0xdn8vv" path="res://scripts/main_setup.gd" id="1"]
+[ext_resource type="Script" uid="uid://c4hc4io4fqkm1" path="res://scripts/game_manager.gd" id="2"]
+[ext_resource type="Script" uid="uid://un0ioa0fv8ws" path="res://scripts/hex_grid.gd" id="3"]
+[ext_resource type="Script" uid="uid://7nfpwb7sdn2n" path="res://scripts/game_ui.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/combat_log.gd" id="5"]
+
+[node name="Main" type="Node2D" unique_id=1831641801]
+script = ExtResource("1")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=1898636203]
+position = Vector2(640, 360)
+zoom = Vector2(1.5, 1.5)
+
+[node name="GameManager" type="Node2D" parent="." unique_id=980983920]
+position = Vector2(640, 360)
+script = ExtResource("2")
+
+[node name="HexGrid" type="Node2D" parent="GameManager" unique_id=2036523243]
+script = ExtResource("3")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="GameManager" unique_id=1240890469]
+
+[node name="GameUI" type="Control" parent="GameManager/CanvasLayer" unique_id=235711615]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("4")
+
+[node name="TurnPanel" type="PanelContainer" parent="GameManager/CanvasLayer/GameUI" unique_id=855845830]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_bottom = 200.0
+grow_horizontal = 0
+
+[node name="VBox" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/TurnPanel" unique_id=864645858]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TurnLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1144896459]
+layout_mode = 2
+text = "Turn: 1 / 5"
+
+[node name="CharacterLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1904750860]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Character"
+
+[node name="MessageLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1054835029]
+layout_mode = 2
+autowrap_mode = 2
+clip_text = true
+
+[node name="EndTurnButton" type="Button" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=933386000]
+layout_mode = 2
+text = "End Turn"
+
+[node name="ManeuverPanel" type="PanelContainer" parent="GameManager/CanvasLayer/GameUI" unique_id=2120390570]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -400.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[node name="VBox" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel" unique_id=559640556]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel/VBox" unique_id=1663567315]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Maneuvers"
+
+[node name="ManeuverList" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel/VBox" unique_id=303053421]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="CombatLog" type="PanelContainer" parent="GameManager/CanvasLayer"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -250.0
+offset_right = 500.0
+grow_vertical = 0
+script = ExtResource("5")
+
+[node name="RichText" type="RichTextLabel" parent="GameManager/CanvasLayer/CombatLog"]
+layout_mode = 2
+bbcode_enabled = true
+scroll_following = true
