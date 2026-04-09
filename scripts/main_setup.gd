@@ -88,27 +88,35 @@ func _ready() -> void:
 	var leon_token: CharacterToken = _make_token(leon, Color.DARK_ORANGE)
 	manager.add_character(leon_token, Vector2i(2, -1))
 
-	# --- T-Virus Zombie ---
-	var zombie: CharacterData = _make_character("T-Virus Zombie", 13, 8, 3, 8, 18, 4.0, 3, 0)
-	zombie.will = 3
-	zombie.per = 3
-	zombie.fp = 8
-	zombie.fp_max = 8
-	zombie.advantages = ["Fearlessness 5", "Hard to Kill 1", "Hard to Subdue 2",
-			"High Pain Threshold", "Resistant (Disease Immunity)", "Unfazeable"]
-	zombie.disadvantages = ["Appearance (Monstrous)", "Bad Smell", "Bestial", "Cannot Learn",
-			"Cannot Speak", "Compulsive Behavior (Eat Flesh)", "Infectious Attack",
-			"Odious Personal Habit (Constant moaning)", "Short Attention Span"]
-	zombie.skills = {"Brawling": 13}
-	zombie.melee_weapons.append(_make_melee("Brawling", "Punch", "1d cr", "C", 13, "0"))
-	zombie.melee_weapons.append(_make_melee("Brawling", "Bite", "1d cr", "C", 13, "No"))
-	zombie.melee_weapons.append(_make_melee("Brawling", "Kick", "1d+1 cr", "C,1", 11, "No"))
-	var zombie_token: CharacterToken = _make_token(zombie, Color.DARK_OLIVE_GREEN)
-	manager.add_character(zombie_token, Vector2i(4, -2))
+	# --- T-Virus Zombies ---
+	var zombie_spawns: Array[Vector2i] = [Vector2i(4, -2), Vector2i(3, 2), Vector2i(5, 1)]
+	for i: int in range(zombie_spawns.size()):
+		var zname: String = "Zombie %s" % char(65 + i)  # Zombie A, B, C...
+		var zombie: CharacterData = _make_zombie(zname)
+		var zombie_token: CharacterToken = _make_token(zombie, Color.DARK_OLIVE_GREEN)
+		manager.add_character(zombie_token, zombie_spawns[i])
 
 	print("Total characters: %d" % manager.characters.size())
 	manager.start_combat()
 	print("Combat started.")
+
+
+func _make_zombie(zname: String) -> CharacterData:
+	var z: CharacterData = _make_character(zname, 13, 8, 3, 8, 18, 4.0, 3, 0)
+	z.will = 3
+	z.per = 3
+	z.fp = 8
+	z.fp_max = 8
+	z.advantages = ["Fearlessness 5", "Hard to Kill 1", "Hard to Subdue 2",
+			"High Pain Threshold", "Resistant (Disease Immunity)", "Unfazeable"]
+	z.disadvantages = ["Appearance (Monstrous)", "Bad Smell", "Bestial", "Cannot Learn",
+			"Cannot Speak", "Compulsive Behavior (Eat Flesh)", "Infectious Attack",
+			"Odious Personal Habit (Constant moaning)", "Short Attention Span"]
+	z.skills = {"Brawling": 13}
+	z.melee_weapons.append(_make_melee("Brawling", "Punch", "1d cr", "C", 13, "0"))
+	z.melee_weapons.append(_make_melee("Brawling", "Bite", "1d cr", "C", 13, "No"))
+	z.melee_weapons.append(_make_melee("Brawling", "Kick", "1d+1 cr", "C,1", 11, "No"))
+	return z
 
 
 func _make_character(cname: String, st_val: int, dx_val: int, iq_val: int,
