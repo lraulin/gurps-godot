@@ -13,25 +13,43 @@ var _highlighted_hexes: Dictionary = {} # Vector2i -> Color
 var _hovered_hex: Vector2i = Vector2i(99999, 99999)
 var _valid_hexes: Dictionary = {} # Set of hexes that exist on the grid
 
+# Panning state
+var _dragging: bool = false
+var _drag_start: Vector2 = Vector2.ZERO
+
 func _ready() -> void:
 	# Build the set of valid hexes
 	for hex: Vector2i in HexUtils.hexes_in_range(Vector2i.ZERO, grid_radius):
 		_valid_hexes[hex] = true
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			_dragging = event.pressed
+			if event.pressed:
+				_drag_start = event.position
+			get_viewport().set_input_as_handled()
+			return
+		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			var local_pos: Vector2 = get_local_mouse_position()
+			var hex: Vector2i = HexUtils.pixel_to_axial(local_pos)
+			if _valid_hexes.has(hex):
+				hex_clicked.emit(hex)
+	elif event is InputEventMouseMotion:
+		if _dragging:
+			var delta: Vector2 = event.position - _drag_start
+			_drag_start = event.position
+			var camera: Camera2D = get_viewport().get_camera_2d()
+			if camera:
+				camera.position -= delta / camera.zoom.x
+			get_viewport().set_input_as_handled()
+			return
 		var local_pos: Vector2 = get_local_mouse_position()
 		var hex: Vector2i = HexUtils.pixel_to_axial(local_pos)
 		if hex != _hovered_hex and _valid_hexes.has(hex):
 			_hovered_hex = hex
 			hex_hovered.emit(hex)
 			queue_redraw()
-	elif event is InputEventMouseButton:
-		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			var local_pos: Vector2 = get_local_mouse_position()
-			var hex: Vector2i = HexUtils.pixel_to_axial(local_pos)
-			if _valid_hexes.has(hex):
-				hex_clicked.emit(hex)
 
 func _draw() -> void:
 	# Draw all grid hexes
