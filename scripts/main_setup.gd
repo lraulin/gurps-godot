@@ -28,7 +28,7 @@ func _ready() -> void:
 	chris.melee_weapons.append(_make_melee("Large Knife", "Thrust", "1d imp", "C,1", 13, "0"))
 	chris.melee_weapons.append(_make_melee("Brawling", "Punch", "1d cr", "C", 15, "0"))
 	chris.melee_weapons.append(_make_melee("Brawling", "Kick", "1d+1 cr", "C,1", 13, "No"))
-	var chris_token: CharacterToken = _make_token(chris, Color.CORNFLOWER_BLUE)
+	var chris_token: CharacterToken = _make_token(chris, Color.CORNFLOWER_BLUE, "res://assets/chris-token.webp")
 	manager.add_character(chris_token, Vector2i(0, 0))
 
 	# --- Jill Valentine ---
@@ -53,7 +53,7 @@ func _ready() -> void:
 	jill.melee_weapons.append(_make_melee("Large Knife", "Thrust", "1d imp", "C,1", 13, "0"))
 	jill.melee_weapons.append(_make_melee("Brawling", "Punch", "1d-3 cr", "C", 13, "0"))
 	jill.melee_weapons.append(_make_melee("Brawling", "Kick", "1d-2 cr", "C,1", 11, "No"))
-	var jill_token: CharacterToken = _make_token(jill, Color.MEDIUM_SEA_GREEN)
+	var jill_token: CharacterToken = _make_token(jill, Color.MEDIUM_SEA_GREEN, "res://assets/jill-token.webp")
 	manager.add_character(jill_token, Vector2i(-1, 2))
 
 	# --- Leon Kennedy (RE4) ---
@@ -85,7 +85,7 @@ func _ready() -> void:
 	leon.melee_weapons.append(_make_melee("Large Knife", "Thrust", "1d imp", "C,1", 18, "0"))
 	leon.melee_weapons.append(_make_melee("Karate", "Punch", "1d+1 cr", "C", 16, "0"))
 	leon.melee_weapons.append(_make_melee("Karate", "Kick", "1d+2 cr", "C,1", 14, "No"))
-	var leon_token: CharacterToken = _make_token(leon, Color.DARK_ORANGE)
+	var leon_token: CharacterToken = _make_token(leon, Color.DARK_ORANGE, "res://assets/leon-token-hex.webp")
 	manager.add_character(leon_token, Vector2i(2, -1))
 
 	# --- T-Virus Zombies ---
@@ -93,7 +93,7 @@ func _ready() -> void:
 	for i: int in range(zombie_spawns.size()):
 		var zname: String = "Zombie %s" % char(65 + i)  # Zombie A, B, C...
 		var zombie: CharacterData = _make_zombie(zname)
-		var zombie_token: CharacterToken = _make_token(zombie, Color.DARK_OLIVE_GREEN)
+		var zombie_token: CharacterToken = _make_token(zombie, Color.DARK_OLIVE_GREEN, "res://assets/zombie-token.webp")
 		manager.add_character(zombie_token, zombie_spawns[i])
 
 	print("Total characters: %d" % manager.characters.size())
@@ -165,8 +165,10 @@ func _make_melee(wname: String, wmode: String, dmg: String, wreach: String,
 	return w
 
 
-func _make_token(char_data: CharacterData, color: Color) -> CharacterToken:
+func _make_token(char_data: CharacterData, color: Color, texture_path: String = "") -> CharacterToken:
 	var token: CharacterToken = CharacterToken.new()
 	token.data = char_data
 	token.token_color = color
+	if texture_path != "":
+		token.token_texture = load(texture_path)
 	return token

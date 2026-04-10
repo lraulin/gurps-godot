@@ -22,7 +22,8 @@ const COLOR_TARGET: Color = Color(1.0, 0.2, 0.2, 0.3)
 
 enum State {
 	PLAYER_TURN,             # move + choose maneuver
-	SELECTING_ATTACK_TARGET, # attack maneuver chosen; picking enemy
+	SELECTING_WEAPON,        # attack maneuver chosen; picking weapon + shots
+	SELECTING_ATTACK_TARGET, # weapon chosen; picking enemy to resolve
 	STEP_AVAILABLE,          # attacked with no prior movement; 1-hex step allowed
 	TURN_OVER,               # done, waiting for End Turn
 }
@@ -31,15 +32,15 @@ var _state: State = State.PLAYER_TURN
 # Turn-local attack tracking
 var _committed_maneuver: Maneuver.Type = Maneuver.Type.DO_NOTHING
 var _pending_target: CharacterToken = null   # target chosen in SELECTING_ATTACK_TARGET
-var _pending_weapon = null                   # weapon chosen after target
+var _pending_weapon = null                   # weapon chosen before target
 var _pending_attack_mode: String = ""        # "ranged" or melee mode string
+var _pending_shots: int = 1                  # shot count for ranged RoF > 1
 
 func _ready() -> void:
 	hex_grid.hex_clicked.connect(_on_hex_clicked)
 	ui.end_turn_pressed.connect(_on_end_turn)
 	ui.attack_mode_selected.connect(_on_attack_mode_selected)
 	ui.shots_selected.connect(_on_shots_selected)
-	ui.kick_requested.connect(_on_kick_requested)
 	ui.maneuver_button_pressed.connect(_on_maneuver_button_pressed)
 	ui.inventory_opened.connect(_on_inventory_opened)
 	ui.combat_log_toggled.connect(_on_combat_log_toggled)
@@ -90,6 +91,7 @@ func _start_turn() -> void:
 	_pending_target = null
 	_pending_weapon = null
 	_pending_attack_mode = ""
+	_pending_shots = 1
 
 	_select_character(token)
 	combat_log.log_turn(token.data.char_name, current_turn_index + 1, turn_order.size())
@@ -110,7 +112,7 @@ func _start_turn() -> void:
 		ui.show_action_buttons([])
 		ui.set_character_info(token.data.char_name, token.data.hp, token.data.hp_max,
 			token.data.fp, token.data.fp_max, "STUNNED — turn over")
-		ui.update_hand_displays(token.data)
+	
 		return
 
 	_state = State.PLAYER_TURN
@@ -142,7 +144,7 @@ func _refresh_ui() -> void:
 	var token := selected_character
 	ui.set_character_info(token.data.char_name, token.data.hp, token.data.hp_max,
 		token.data.fp, token.data.fp_max, "")
-	ui.update_hand_displays(token.data)
+
 	_update_action_buttons()
 	_show_movement_zones()
 
@@ -238,6 +240,8 @@ func _on_hex_clicked(hex: Vector2i) -> void:
 	match _state:
 		State.PLAYER_TURN:
 			_handle_movement_click(hex)
+		State.SELECTING_WEAPON:
+			pass  # no hex interaction during weapon/shots selection
 		State.STEP_AVAILABLE:
 			_handle_step_click(hex)
 		State.SELECTING_ATTACK_TARGET:
@@ -306,18 +310,21 @@ func _handle_target_click(hex: Vector2i) -> void:
 		ui.show_message("Aiming at %s — click End Turn" % target_token.data.char_name)
 		return
 
-	# ── Store target ──
+	# ── Store target and resolve ──
 	_pending_target = target_token
-	var range_hexes: int = HexUtils.hex_distance(selected_character.hex_pos, target_token.hex_pos)
 
-	# If weapon already pre-selected (e.g. from Kick button), resolve immediately
-	if _pending_weapon != null:
-		_on_attack_mode_selected(_pending_weapon, _pending_attack_mode)
-		return
+	if _pending_weapon == null:
+		return  # shouldn't happen — weapon selected before target in new flow
 
-	# Otherwise show attack options filtered by range
-	ui.show_attack_options(selected_character.data, range_hexes)
-	ui.show_message("Choose attack vs %s" % target_token.data.char_name)
+	# Validate range for melee
+	if _pending_attack_mode != "ranged":
+		var range_hexes: int = HexUtils.hex_distance(selected_character.hex_pos, target_token.hex_pos)
+		if range_hexes > 1:
+			ui.show_message("Target is not adjacent — melee out of range!")
+			_pending_target = null
+			return
+
+	_resolve_attack(_pending_target, _pending_weapon, _pending_attack_mode, _pending_shots)
 
 # ─── UI Signal Handlers ───────────────────────────────────────────────────────
 
@@ -333,14 +340,12 @@ func _on_maneuver_button_pressed(type: Maneuver.Type) -> void:
 			if type == Maneuver.Type.ALL_OUT_ATTACK:
 				cstate.all_out_attack = true
 				combat_log.log_message("%s goes All-Out Attack!" % selected_character.data.char_name)
-				_show_movement_zones()  # limit to half-move
 			elif type == Maneuver.Type.MOVE_AND_ATTACK:
 				combat_log.log_message("%s uses Move and Attack." % selected_character.data.char_name)
-			_state = State.SELECTING_ATTACK_TARGET
+			_state = State.SELECTING_WEAPON
 			hex_grid.clear_highlights()
-			_highlight_valid_targets()
-			ui.show_select_target_prompt()
-			ui.show_message("Click an enemy to attack")
+			ui.show_weapon_options(selected_character.data, _has_adjacent_enemy())
+			ui.show_message("Choose your weapon")
 
 		Maneuver.Type.ALL_OUT_DEFENSE:
 			_committed_maneuver = type
@@ -380,45 +385,11 @@ func _on_maneuver_button_pressed(type: Maneuver.Type) -> void:
 			ui.show_message("Waiting — click End Turn")
 
 
-func _on_kick_requested() -> void:
-	if _state != State.PLAYER_TURN:
-		return
-	if not selected_character:
-		return
-
-	var kick_weapon: MeleeWeaponData = null
-	for w: MeleeWeaponData in selected_character.data.melee_weapons:
-		if w.mode.to_lower() == "kick":
-			kick_weapon = w
-			break
-
-	if not kick_weapon:
-		kick_weapon = MeleeWeaponData.new()
-		kick_weapon.weapon_name = "Brawling"
-		kick_weapon.mode = "Kick"
-		kick_weapon.damage = "1d cr"
-		kick_weapon.skill_level = selected_character.data.dx_stat - 2
-		kick_weapon.reach = "C,1"
-		kick_weapon.parry_modifier = "No"
-
-	# Kick is a melee attack — infer maneuver from movement
-	_committed_maneuver = Maneuver.Type.DO_NOTHING  # will be inferred
-	_pending_weapon = kick_weapon
-	_pending_attack_mode = "Kick"
-	_state = State.SELECTING_ATTACK_TARGET
-	hex_grid.clear_highlights()
-	_highlight_valid_targets()
-	ui.show_select_target_prompt()
-	ui.show_message("Kick — click an adjacent target")
-
-
 func _on_attack_mode_selected(weapon, mode: String) -> void:
-	if _pending_target == null:
-		return
 	_pending_weapon = weapon
 	_pending_attack_mode = mode
 
-	# For ranged weapons with RoF > 1, ask how many shots
+	# For ranged weapons with RoF > 1, ask how many shots before target selection
 	if mode == "ranged":
 		var rw := weapon as RangedWeaponData
 		if rw.rof > 1 and rw.loaded_rounds() > 1:
@@ -426,38 +397,39 @@ func _on_attack_mode_selected(weapon, mode: String) -> void:
 			ui.show_message("How many shots? (RoF %d)" % rw.rof)
 			return
 
-	# Melee or single-shot ranged — resolve immediately
-	_resolve_attack(_pending_target, weapon, mode, 1)
+	# Single-shot ranged or melee — proceed to target selection
+	_pending_shots = 1
+	_enter_target_selection()
 
 
 func _on_shots_selected(count: int) -> void:
-	if _pending_target == null or _pending_weapon == null:
+	if _pending_weapon == null:
 		return
-	_resolve_attack(_pending_target, _pending_weapon, _pending_attack_mode, count)
+	_pending_shots = count
+	_enter_target_selection()
+
+
+func _enter_target_selection() -> void:
+	_state = State.SELECTING_ATTACK_TARGET
+	_highlight_valid_targets()
+	ui.show_select_target_prompt()
+	ui.show_message("Click an enemy to attack")
 
 
 func _on_cancel_attack() -> void:
-	# Determine what phase we're cancelling from based on pending state
-	if _pending_weapon != null:
-		# Cancelling from shots selector — go back to attack options
+	# From target selection or shots selector — go back to weapon options
+	if _state == State.SELECTING_ATTACK_TARGET or _pending_weapon != null:
+		_pending_target = null
 		_pending_weapon = null
 		_pending_attack_mode = ""
-		if _pending_target != null:
-			var range_hexes := HexUtils.hex_distance(
-				selected_character.hex_pos, _pending_target.hex_pos)
-			ui.show_attack_options(selected_character.data, range_hexes)
-			ui.show_message("Choose attack vs %s" % _pending_target.data.char_name)
+		_pending_shots = 1
+		_state = State.SELECTING_WEAPON
+		hex_grid.clear_highlights()
+		ui.show_weapon_options(selected_character.data, _has_adjacent_enemy())
+		ui.show_message("Choose your weapon")
 		return
 
-	if _pending_target != null:
-		# Cancelling from attack options — go back to target selection
-		_pending_target = null
-		_highlight_valid_targets()
-		ui.show_select_target_prompt()
-		ui.show_message("Click an enemy to attack")
-		return
-
-	# Cancelling from target selection — return to PLAYER_TURN
+	# From weapon selection — return to PLAYER_TURN
 	_committed_maneuver = Maneuver.Type.DO_NOTHING
 	_state = State.PLAYER_TURN
 	_refresh_ui()
@@ -490,7 +462,6 @@ func _on_equip_weapon_requested(weapon) -> void:
 	hex_grid.clear_highlights()
 	ui.show_action_buttons([])
 	ui.close_inventory()
-	ui.update_hand_displays(selected_character.data)
 	ui.show_message("Readied %s — click End Turn" % wname)
 
 
@@ -560,15 +531,6 @@ func _resolve_attack(target: CharacterToken, weapon, mode: String, shots: int) -
 		target.is_aim_target = false
 		target.queue_redraw()
 	else:
-		if not is_adjacent:
-			ui.show_message("Target is not adjacent — melee out of range!")
-			# Reset pending so player can re-pick
-			_pending_weapon = null
-			_pending_attack_mode = ""
-			if _pending_target != null:
-				var r := HexUtils.hex_distance(selected_character.hex_pos, _pending_target.hex_pos)
-				ui.show_attack_options(selected_character.data, r)
-			return
 		var mw := weapon as MeleeWeaponData
 		var dmg_bonus: int = 2 if is_all_out else 0
 		var max_eff: int = 9 if maneuver == Maneuver.Type.MOVE_AND_ATTACK else -1
@@ -604,10 +566,28 @@ func _get_inferred_maneuver() -> Maneuver.Type:
 	return Maneuver.Type.ATTACK if selected_character.movement_used <= 1 else Maneuver.Type.MOVE_AND_ATTACK
 
 
+func _has_adjacent_enemy() -> bool:
+	for token: CharacterToken in characters:
+		if token == selected_character or token.data.dead:
+			continue
+		if HexUtils.hex_distance(selected_character.hex_pos, token.hex_pos) <= 1:
+			return true
+	return false
+
+
 func _highlight_valid_targets() -> void:
 	var highlights: Dictionary = {}
 	for token: CharacterToken in characters:
 		if token == selected_character or token.data.dead:
 			continue
+		var dist := HexUtils.hex_distance(selected_character.hex_pos, token.hex_pos)
+		# Filter by weapon range
+		if _pending_weapon is MeleeWeaponData:
+			if dist > 1:
+				continue
+		elif _pending_weapon is RangedWeaponData:
+			var rw := _pending_weapon as RangedWeaponData
+			if dist > rw.range_max:
+				continue
 		highlights[token.hex_pos] = COLOR_TARGET
 	hex_grid.set_highlights(highlights)

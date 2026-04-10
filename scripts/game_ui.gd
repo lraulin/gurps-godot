@@ -2,12 +2,11 @@ class_name GameUI
 extends Control
 
 ## XCOM-style bottom bar HUD.
-## All UI built programmatically. Hand panels are display-only.
-## Attack flow: pick maneuver → pick target → pick attack → (pick shots) → popup.
+## All UI built programmatically.
+## Attack flow: pick maneuver → pick weapon → (pick shots) → click target → popup.
 
 signal attack_mode_selected(weapon, mode: String)
 signal shots_selected(count: int)
-signal kick_requested()
 signal maneuver_button_pressed(type: Maneuver.Type)
 signal inventory_opened()
 signal end_turn_pressed()
@@ -19,8 +18,6 @@ signal cancel_attack()
 const BAR_HEIGHT := 120
 
 # Bottom bar refs
-var _left_hand_label: Label
-var _right_hand_label: Label
 var _action_row: HBoxContainer
 var _name_label: Label
 var _hp_label: Label
@@ -36,7 +33,6 @@ var _inv_list: VBoxContainer
 
 # State
 var _current_available: Array[Maneuver.Type] = []
-var _current_char_data: CharacterData = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -58,24 +54,6 @@ func _build_bottom_bar() -> void:
 	var hbox := HBoxContainer.new()
 	hbox.add_theme_constant_override("separation", 2)
 	bar.add_child(hbox)
-
-	# ── Left hand (display only) ──
-	var left_panel := PanelContainer.new()
-	left_panel.custom_minimum_size = Vector2(110, 0)
-	left_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(left_panel)
-	var left_vbox := VBoxContainer.new()
-	left_panel.add_child(left_vbox)
-	var left_title := Label.new()
-	left_title.text = "LEFT HAND"
-	left_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left_vbox.add_child(left_title)
-	_left_hand_label = Label.new()
-	_left_hand_label.text = "[Fist]"
-	_left_hand_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_left_hand_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	left_vbox.add_child(_left_hand_label)
 
 	# ── Center ──
 	var center := VBoxContainer.new()
@@ -110,24 +88,6 @@ func _build_bottom_bar() -> void:
 	_status_label.modulate = Color.YELLOW
 	info_row.add_child(_status_label)
 
-	# ── Right hand (display only) ──
-	var right_panel := PanelContainer.new()
-	right_panel.custom_minimum_size = Vector2(110, 0)
-	right_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(right_panel)
-	var right_vbox := VBoxContainer.new()
-	right_panel.add_child(right_vbox)
-	var right_title := Label.new()
-	right_title.text = "RIGHT HAND"
-	right_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	right_vbox.add_child(right_title)
-	_right_hand_label = Label.new()
-	_right_hand_label.text = "[Fist]"
-	_right_hand_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_right_hand_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	right_vbox.add_child(_right_hand_label)
-
 	_build_action_buttons([])
 
 
@@ -156,14 +116,6 @@ func _build_action_buttons(available: Array[Maneuver.Type]) -> void:
 		var t := mtype  # capture for closure
 		btn.pressed.connect(func(): maneuver_button_pressed.emit(t))
 		_action_row.add_child(btn)
-
-	_action_row.add_child(_make_spacer())
-
-	# Kick (always enabled)
-	var kick_btn := Button.new()
-	kick_btn.text = "KICK"
-	kick_btn.pressed.connect(func(): kick_requested.emit())
-	_action_row.add_child(kick_btn)
 
 	_action_row.add_child(_make_spacer())
 
@@ -200,40 +152,98 @@ func show_action_buttons(available: Array[Maneuver.Type]) -> void:
 	_build_action_buttons(available)
 
 
-func show_attack_options(char_data: CharacterData, range_hexes: int) -> void:
-	## Shows attack options filtered by range. Call after target is selected.
+func show_weapon_options(char_data: CharacterData, has_adjacent_target: bool) -> void:
+	## Shows equipped weapon + natural attacks. Call after maneuver is chosen.
+	## Melee options only shown when has_adjacent_target is true.
 	_clear_action_row()
 
+	var equipped = char_data.get_right_hand()
+	var natural_modes := ["punch", "kick", "bite"]
 	var any_shown := false
 
-	# Ranged weapons — always showable (range checked at resolution)
-	for weapon: RangedWeaponData in char_data.ranged_weapons:
-		if range_hexes > weapon.range_max:
-			continue  # beyond max range
-		var btn := Button.new()
-		var ammo_str := " [%s]" % weapon.ammo_summary() if weapon.uses_magazines() else ""
-		btn.text = "%s (Skill %d)%s" % [weapon.weapon_name, weapon.skill_level, ammo_str]
-		var w := weapon
-		btn.pressed.connect(func(): attack_mode_selected.emit(w, "ranged"))
-		_action_row.add_child(btn)
-		any_shown = true
+	# Show equipped weapon (if it's not a natural attack)
+	if equipped != null:
+		var is_natural := false
+		if equipped is MeleeWeaponData:
+			if (equipped as MeleeWeaponData).mode.to_lower() in natural_modes:
+				is_natural = true
+		if not is_natural:
+			if equipped is RangedWeaponData:
+				var btn := Button.new()
+				var rw := equipped as RangedWeaponData
+				var ammo_str := " [%s]" % rw.ammo_summary() if rw.uses_magazines() else ""
+				btn.text = "%s (Skill %d)%s" % [rw.weapon_name, rw.skill_level, ammo_str]
+				var w := rw
+				btn.pressed.connect(func(): attack_mode_selected.emit(w, "ranged"))
+				_action_row.add_child(btn)
+				any_shown = true
+			elif equipped is MeleeWeaponData and has_adjacent_target:
+				var btn := Button.new()
+				var mw := equipped as MeleeWeaponData
+				btn.text = "%s: %s (%d)" % [mw.weapon_name, mw.mode, mw.skill_level]
+				var w := mw
+				var m: String = mw.mode
+				btn.pressed.connect(func(): attack_mode_selected.emit(w, m))
+				_action_row.add_child(btn)
+				any_shown = true
 
-	# Melee weapons — only if target is adjacent
-	if range_hexes <= 1:
+	# Natural attacks — only if an adjacent target exists
+	if has_adjacent_target:
+		var found_punch := false
+		var found_kick := false
 		for weapon: MeleeWeaponData in char_data.melee_weapons:
-			if weapon.mode.to_lower() in ["kick", "bite"]:
-				continue  # kick is its own button; skip bite for now
+			var mode_lower := weapon.mode.to_lower()
+			if mode_lower == "punch":
+				found_punch = true
+			elif mode_lower == "kick":
+				found_kick = true
+			elif mode_lower == "bite":
+				pass  # show bite if present
+			else:
+				continue  # skip non-natural melee (shown as equipped if applicable)
 			var btn := Button.new()
-			btn.text = "%s: %s (%d)" % [weapon.weapon_name, weapon.mode, weapon.skill_level]
+			btn.text = "%s (%d)" % [weapon.mode, weapon.skill_level]
 			var w := weapon
 			var m: String = weapon.mode
 			btn.pressed.connect(func(): attack_mode_selected.emit(w, m))
 			_action_row.add_child(btn)
 			any_shown = true
 
+		# Default punch if not in melee_weapons
+		if not found_punch:
+			var punch := MeleeWeaponData.new()
+			punch.weapon_name = "Brawling"
+			punch.mode = "Punch"
+			punch.damage = "1d-2 cr"
+			punch.skill_level = char_data.dx_stat
+			punch.reach = "C"
+			punch.parry_modifier = "0"
+			var btn := Button.new()
+			btn.text = "Punch (%d)" % punch.skill_level
+			var w := punch
+			btn.pressed.connect(func(): attack_mode_selected.emit(w, "Punch"))
+			_action_row.add_child(btn)
+			any_shown = true
+
+		# Default kick if not in melee_weapons
+		if not found_kick:
+			var kick := MeleeWeaponData.new()
+			kick.weapon_name = "Brawling"
+			kick.mode = "Kick"
+			kick.damage = "1d cr"
+			kick.skill_level = char_data.dx_stat - 2
+			kick.reach = "C,1"
+			kick.parry_modifier = "No"
+			var btn := Button.new()
+			btn.text = "Kick (%d)" % kick.skill_level
+			var w := kick
+			btn.pressed.connect(func(): attack_mode_selected.emit(w, "Kick"))
+			_action_row.add_child(btn)
+			any_shown = true
+
 	if not any_shown:
 		var lbl := Label.new()
-		lbl.text = "No attacks in range"
+		lbl.text = "No attacks available (no targets in range)"
 		_action_row.add_child(lbl)
 
 	_action_row.add_child(_make_spacer())
@@ -281,27 +291,6 @@ func show_select_target_prompt() -> void:
 	cancel.text = "Cancel"
 	cancel.pressed.connect(func(): cancel_attack.emit())
 	_action_row.add_child(cancel)
-
-
-func update_hand_displays(char_data: CharacterData) -> void:
-	_current_char_data = char_data
-	if not char_data:
-		_left_hand_label.text = "[Fist]"
-		_right_hand_label.text = "[Fist]"
-		return
-
-	# Right hand — primary weapon
-	var rh := char_data.get_right_hand()
-	if rh == null:
-		_right_hand_label.text = "[Fist]"
-	elif rh is RangedWeaponData:
-		var rw := rh as RangedWeaponData
-		_right_hand_label.text = rw.weapon_name
-	elif rh is MeleeWeaponData:
-		var mw := rh as MeleeWeaponData
-		_right_hand_label.text = "%s (%s)" % [mw.weapon_name, mw.mode]
-
-	_left_hand_label.text = "[Fist]"
 
 
 func set_character_info(char_name: String, hp: int, hp_max: int, fp: int, fp_max: int, status: String) -> void:
@@ -470,21 +459,20 @@ func show_inventory(char_data: CharacterData) -> void:
 		_inv_panel.visible = true
 		return
 
-	# ── Currently held ──
+	# ── Currently equipped ──
 	_inv_list.add_child(_make_section_label("── Equipped ─────────────────"))
 
 	var rh := char_data.get_right_hand()
-	var rh_name := "[Fist]"
+	var rh_name := "[Unarmed]"
 	if rh is RangedWeaponData:
 		var rw := rh as RangedWeaponData
 		rh_name = "%s (Skill %d)  %s" % [rw.weapon_name, rw.skill_level, rw.ammo_summary() if rw.uses_magazines() else ""]
 	elif rh is MeleeWeaponData:
 		var mw := rh as MeleeWeaponData
-		rh_name = "%s: %s (Skill %d)" % [mw.weapon_name, mw.mode, mw.skill_level]
+		if mw.mode.to_lower() not in ["punch", "kick", "bite"]:
+			rh_name = "%s: %s (Skill %d)" % [mw.weapon_name, mw.mode, mw.skill_level]
 
-	var equip_row := _make_item_row("Right Hand: " + rh_name, null)
-	_inv_list.add_child(equip_row)
-	_inv_list.add_child(_make_item_row("Left Hand:  [Fist]", null))
+	_inv_list.add_child(_make_item_row(rh_name, null))
 
 	_inv_list.add_child(HSeparator.new())
 	_inv_list.add_child(_make_section_label("── Ranged Weapons ───────────"))
