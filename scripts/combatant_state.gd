@@ -40,6 +40,10 @@ var reload_turns_remaining: int = 0
 # Waiting
 var waiting: bool = false
 
+# Turn commitment tracking
+var committed_maneuver: Maneuver.Type = Maneuver.Type.DO_NOTHING
+var attacked_this_turn: bool = false
+
 func break_aim() -> void:
 	aim_target = null
 	aim_weapon_name = ""
@@ -57,3 +61,5 @@ func reset_for_new_turn() -> void:
 	dodges_this_turn = 0
 	movement_used = 0
 	waiting = false
+	committed_maneuver = Maneuver.Type.DO_NOTHING
+	attacked_this_turn = false

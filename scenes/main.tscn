@@ -32,69 +32,14 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("4")
 
-[node name="TurnPanel" type="PanelContainer" parent="GameManager/CanvasLayer/GameUI" unique_id=855845830]
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -220.0
-offset_bottom = 200.0
-grow_horizontal = 0
-
-[node name="VBox" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/TurnPanel" unique_id=864645858]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="TurnLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1144896459]
-layout_mode = 2
-text = "Turn: 1 / 5"
-
-[node name="CharacterLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1904750860]
-layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "Character"
-
-[node name="MessageLabel" type="Label" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=1054835029]
-layout_mode = 2
-autowrap_mode = 2
-clip_text = true
-
-[node name="EndTurnButton" type="Button" parent="GameManager/CanvasLayer/GameUI/TurnPanel/VBox" unique_id=933386000]
-layout_mode = 2
-text = "End Turn"
-
-[node name="ManeuverPanel" type="PanelContainer" parent="GameManager/CanvasLayer/GameUI" unique_id=2120390570]
-layout_mode = 1
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -220.0
-offset_top = -400.0
-grow_horizontal = 0
-grow_vertical = 0
-
-[node name="VBox" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel" unique_id=559640556]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="Title" type="Label" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel/VBox" unique_id=1663567315]
-layout_mode = 2
-theme_override_font_sizes/font_size = 16
-text = "Maneuvers"
-
-[node name="ManeuverList" type="VBoxContainer" parent="GameManager/CanvasLayer/GameUI/ManeuverPanel/VBox" unique_id=303053421]
-layout_mode = 2
-theme_override_constants/separation = 2
-
 [node name="CombatLog" type="PanelContainer" parent="GameManager/CanvasLayer"]
 anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
-offset_top = -250.0
-offset_right = 500.0
+offset_top = -300.0
+offset_right = 550.0
 grow_vertical = 0
+visible = false
 script = ExtResource("5")
 
 [node name="RichText" type="RichTextLabel" parent="GameManager/CanvasLayer/CombatLog"]
