@@ -2,22 +2,25 @@ class_name GameUI
 extends Control
 
 ## XCOM-style bottom bar HUD.
-## Builds all UI nodes programmatically — no .tscn sub-nodes needed.
+## All UI built programmatically. Hand panels are display-only.
+## Attack flow: pick maneuver → pick target → pick attack → (pick shots) → popup.
 
-signal hand_slot_clicked(hand: String)
 signal attack_mode_selected(weapon, mode: String)
+signal shots_selected(count: int)
 signal kick_requested()
 signal maneuver_button_pressed(type: Maneuver.Type)
 signal inventory_opened()
 signal end_turn_pressed()
 signal combat_log_toggled()
 signal combat_popup_confirmed()
+signal equip_weapon_requested(weapon)
+signal cancel_attack()
 
 const BAR_HEIGHT := 120
 
 # Bottom bar refs
-var _left_hand_btn: Button
-var _right_hand_btn: Button
+var _left_hand_label: Label
+var _right_hand_label: Label
 var _action_row: HBoxContainer
 var _name_label: Label
 var _hp_label: Label
@@ -56,13 +59,23 @@ func _build_bottom_bar() -> void:
 	hbox.add_theme_constant_override("separation", 2)
 	bar.add_child(hbox)
 
-	# ── Left hand ──
-	_left_hand_btn = Button.new()
-	_left_hand_btn.custom_minimum_size = Vector2(110, 0)
-	_left_hand_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_left_hand_btn.text = "LEFT HAND\n\n[Fist]"
-	_left_hand_btn.pressed.connect(func(): hand_slot_clicked.emit("left"))
-	hbox.add_child(_left_hand_btn)
+	# ── Left hand (display only) ──
+	var left_panel := PanelContainer.new()
+	left_panel.custom_minimum_size = Vector2(110, 0)
+	left_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(left_panel)
+	var left_vbox := VBoxContainer.new()
+	left_panel.add_child(left_vbox)
+	var left_title := Label.new()
+	left_title.text = "LEFT HAND"
+	left_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	left_vbox.add_child(left_title)
+	_left_hand_label = Label.new()
+	_left_hand_label.text = "[Fist]"
+	_left_hand_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_left_hand_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	left_vbox.add_child(_left_hand_label)
 
 	# ── Center ──
 	var center := VBoxContainer.new()
@@ -97,13 +110,23 @@ func _build_bottom_bar() -> void:
 	_status_label.modulate = Color.YELLOW
 	info_row.add_child(_status_label)
 
-	# ── Right hand ──
-	_right_hand_btn = Button.new()
-	_right_hand_btn.custom_minimum_size = Vector2(110, 0)
-	_right_hand_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_right_hand_btn.text = "RIGHT HAND\n\n[Fist]"
-	_right_hand_btn.pressed.connect(func(): hand_slot_clicked.emit("right"))
-	hbox.add_child(_right_hand_btn)
+	# ── Right hand (display only) ──
+	var right_panel := PanelContainer.new()
+	right_panel.custom_minimum_size = Vector2(110, 0)
+	right_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hbox.add_child(right_panel)
+	var right_vbox := VBoxContainer.new()
+	right_panel.add_child(right_vbox)
+	var right_title := Label.new()
+	right_title.text = "RIGHT HAND"
+	right_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	right_vbox.add_child(right_title)
+	_right_hand_label = Label.new()
+	_right_hand_label.text = "[Fist]"
+	_right_hand_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_right_hand_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	right_vbox.add_child(_right_hand_label)
 
 	_build_action_buttons([])
 
@@ -114,18 +137,20 @@ func _build_action_buttons(available: Array[Maneuver.Type]) -> void:
 	_clear_action_row()
 	_current_available = available
 
-	# Maneuver buttons
+	# All maneuver buttons (attack types now included explicitly)
 	var shown_maneuvers: Array[Maneuver.Type] = [
+		Maneuver.Type.ATTACK,
 		Maneuver.Type.ALL_OUT_ATTACK,
+		Maneuver.Type.MOVE_AND_ATTACK,
 		Maneuver.Type.ALL_OUT_DEFENSE,
-		Maneuver.Type.READY,
 		Maneuver.Type.AIM,
+		Maneuver.Type.READY,
 		Maneuver.Type.WAIT,
 	]
 	for mtype in shown_maneuvers:
 		var btn := Button.new()
 		btn.text = Maneuver.get_maneuver_name(mtype)
-		# Empty available = all disabled (turn over); populated = only listed types enabled
+		# Empty available = all disabled; populated = only listed types enabled
 		var enabled: bool = mtype in available
 		btn.disabled = not enabled
 		var t := mtype  # capture for closure
@@ -142,7 +167,6 @@ func _build_action_buttons(available: Array[Maneuver.Type]) -> void:
 
 	_action_row.add_child(_make_spacer())
 
-	# Utility buttons
 	var log_btn := Button.new()
 	log_btn.text = "Log"
 	log_btn.pressed.connect(func(): combat_log_toggled.emit())
@@ -176,51 +200,108 @@ func show_action_buttons(available: Array[Maneuver.Type]) -> void:
 	_build_action_buttons(available)
 
 
-func show_attack_options(char_data: CharacterData) -> void:
-	## Replace the action row with weapon/attack mode buttons + Cancel.
+func show_attack_options(char_data: CharacterData, range_hexes: int) -> void:
+	## Shows attack options filtered by range. Call after target is selected.
 	_clear_action_row()
 
-	for weapon in char_data.ranged_weapons:
+	var any_shown := false
+
+	# Ranged weapons — always showable (range checked at resolution)
+	for weapon: RangedWeaponData in char_data.ranged_weapons:
+		if range_hexes > weapon.range_max:
+			continue  # beyond max range
 		var btn := Button.new()
-		btn.text = "%s (Skill %d)" % [weapon.weapon_name, weapon.skill_level]
-		var w = weapon
+		var ammo_str := " [%s]" % weapon.ammo_summary() if weapon.uses_magazines() else ""
+		btn.text = "%s (Skill %d)%s" % [weapon.weapon_name, weapon.skill_level, ammo_str]
+		var w := weapon
 		btn.pressed.connect(func(): attack_mode_selected.emit(w, "ranged"))
 		_action_row.add_child(btn)
+		any_shown = true
 
-	for weapon in char_data.melee_weapons:
+	# Melee weapons — only if target is adjacent
+	if range_hexes <= 1:
+		for weapon: MeleeWeaponData in char_data.melee_weapons:
+			if weapon.mode.to_lower() in ["kick", "bite"]:
+				continue  # kick is its own button; skip bite for now
+			var btn := Button.new()
+			btn.text = "%s: %s (%d)" % [weapon.weapon_name, weapon.mode, weapon.skill_level]
+			var w := weapon
+			var m: String = weapon.mode
+			btn.pressed.connect(func(): attack_mode_selected.emit(w, m))
+			_action_row.add_child(btn)
+			any_shown = true
+
+	if not any_shown:
+		var lbl := Label.new()
+		lbl.text = "No attacks in range"
+		_action_row.add_child(lbl)
+
+	_action_row.add_child(_make_spacer())
+
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.pressed.connect(func(): cancel_attack.emit())
+	_action_row.add_child(cancel)
+
+
+func show_shots_selector(weapon: RangedWeaponData) -> void:
+	## Shows shot count buttons for ranged weapons with RoF > 1.
+	_clear_action_row()
+
+	var lbl := Label.new()
+	lbl.text = "Shots:"
+	_action_row.add_child(lbl)
+
+	var max_shots: int = min(weapon.rof, weapon.loaded_rounds())
+	for i: int in range(1, max_shots + 1):
 		var btn := Button.new()
-		btn.text = "%s: %s (%d)" % [weapon.weapon_name, weapon.mode, weapon.skill_level]
-		var w = weapon
-		var m: String = weapon.mode
-		btn.pressed.connect(func(): attack_mode_selected.emit(w, m))
+		btn.text = str(i)
+		var count := i
+		btn.pressed.connect(func(): shots_selected.emit(count))
 		_action_row.add_child(btn)
 
 	_action_row.add_child(_make_spacer())
 
 	var cancel := Button.new()
 	cancel.text = "Cancel"
-	cancel.pressed.connect(func(): _build_action_buttons(_current_available))
+	cancel.pressed.connect(func(): cancel_attack.emit())
+	_action_row.add_child(cancel)
+
+
+func show_select_target_prompt() -> void:
+	## Replaces action row with a "click target" message and a Cancel.
+	_clear_action_row()
+
+	var lbl := Label.new()
+	lbl.text = "← Click an enemy to attack"
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_action_row.add_child(lbl)
+
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.pressed.connect(func(): cancel_attack.emit())
 	_action_row.add_child(cancel)
 
 
 func update_hand_displays(char_data: CharacterData) -> void:
 	_current_char_data = char_data
 	if not char_data:
-		_left_hand_btn.text = "LEFT HAND\n\n[Fist]"
-		_right_hand_btn.text = "RIGHT HAND\n\n[Fist]"
+		_left_hand_label.text = "[Fist]"
+		_right_hand_label.text = "[Fist]"
 		return
 
-	# Right hand: primary weapon
-	var right_text := "[Fist]"
-	if char_data.ranged_weapons.size() > 0:
-		right_text = char_data.ranged_weapons[0].weapon_name
-	elif char_data.melee_weapons.size() > 0:
-		for w in char_data.melee_weapons:
-			if w.weapon_name != "Brawling" and w.mode.to_lower() not in ["kick", "bite"]:
-				right_text = "%s (%s)" % [w.weapon_name, w.mode]
-				break
-	_right_hand_btn.text = "RIGHT HAND\n\n%s" % right_text
-	_left_hand_btn.text = "LEFT HAND\n\n[Fist]"
+	# Right hand — primary weapon
+	var rh := char_data.get_right_hand()
+	if rh == null:
+		_right_hand_label.text = "[Fist]"
+	elif rh is RangedWeaponData:
+		var rw := rh as RangedWeaponData
+		_right_hand_label.text = rw.weapon_name
+	elif rh is MeleeWeaponData:
+		var mw := rh as MeleeWeaponData
+		_right_hand_label.text = "%s (%s)" % [mw.weapon_name, mw.mode]
+
+	_left_hand_label.text = "[Fist]"
 
 
 func set_character_info(char_name: String, hp: int, hp_max: int, fp: int, fp_max: int, status: String) -> void:
@@ -244,13 +325,18 @@ func show_message(text: String) -> void:
 		_status_label.text = text
 
 
+func close_inventory() -> void:
+	if _inv_panel:
+		_inv_panel.visible = false
+
+
 # ─── Attack Popup ──────────────────────────────────────────────────────────────
 
 func _build_attack_popup() -> void:
 	_attack_popup = AcceptDialog.new()
 	_attack_popup.title = "Attack Resolution"
-	_attack_popup.min_size = Vector2(440, 220)
-	_attack_popup.exclusive = true   # blocks input to background while open
+	_attack_popup.min_size = Vector2(480, 240)
+	_attack_popup.exclusive = true
 	_attack_popup.confirmed.connect(func(): combat_popup_confirmed.emit())
 	_attack_popup.canceled.connect(func(): combat_popup_confirmed.emit())
 	add_child(_attack_popup)
@@ -270,7 +356,6 @@ func show_combat_popup(result: AttackResult) -> void:
 		_attack_popup.popup_centered()
 		return
 
-	# Skill line
 	var skill_line := "Skill: %d" % result.base_skill
 	for mod: Array in result.modifier_breakdown:
 		var val := int(mod[1])
@@ -297,7 +382,7 @@ func show_combat_popup(result: AttackResult) -> void:
 		return
 
 	if result.hit_torso_instead:
-		lines.append("* Missed targeted location by 1 — hits TORSO instead!")
+		lines.append("* Missed targeted location — hits TORSO instead!")
 
 	if result.defense_type != "":
 		if result.defense_succeeded:
@@ -339,7 +424,7 @@ func show_combat_popup(result: AttackResult) -> void:
 func _build_inventory_panel() -> void:
 	_inv_panel = PanelContainer.new()
 	_inv_panel.visible = false
-	_inv_panel.custom_minimum_size = Vector2(380, 350)
+	_inv_panel.custom_minimum_size = Vector2(420, 380)
 	_inv_panel.set_anchors_preset(Control.PRESET_CENTER)
 	_inv_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_inv_panel)
@@ -349,12 +434,10 @@ func _build_inventory_panel() -> void:
 
 	var header := HBoxContainer.new()
 	vbox.add_child(header)
-
 	var title := Label.new()
 	title.text = "INVENTORY"
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title)
-
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.pressed.connect(func(): _inv_panel.visible = false)
@@ -364,7 +447,7 @@ func _build_inventory_panel() -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(0, 220)
+	scroll.custom_minimum_size = Vector2(0, 250)
 	vbox.add_child(scroll)
 
 	_inv_list = VBoxContainer.new()
@@ -374,7 +457,7 @@ func _build_inventory_panel() -> void:
 	vbox.add_child(HSeparator.new())
 
 	var note := Label.new()
-	note.text = "Dropping from hand: free action.  Equipping from inventory: Ready maneuver."
+	note.text = "Drop (free) | Equip = Ready maneuver"
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vbox.add_child(note)
 
@@ -387,32 +470,62 @@ func show_inventory(char_data: CharacterData) -> void:
 		_inv_panel.visible = true
 		return
 
-	var _add_row := func(text: String) -> void:
-		var lbl := Label.new()
-		lbl.text = text
-		_inv_list.add_child(lbl)
+	# ── Currently held ──
+	_inv_list.add_child(_make_section_label("── Equipped ─────────────────"))
 
-	# Hands section
-	_add_row.call("── Equipped ─────────────────────")
+	var rh := char_data.get_right_hand()
+	var rh_name := "[Fist]"
+	if rh is RangedWeaponData:
+		var rw := rh as RangedWeaponData
+		rh_name = "%s (Skill %d)  %s" % [rw.weapon_name, rw.skill_level, rw.ammo_summary() if rw.uses_magazines() else ""]
+	elif rh is MeleeWeaponData:
+		var mw := rh as MeleeWeaponData
+		rh_name = "%s: %s (Skill %d)" % [mw.weapon_name, mw.mode, mw.skill_level]
 
-	var rh_text := "[Fist]"
-	if char_data.ranged_weapons.size() > 0:
-		rh_text = "%s  (Skill %d,  Ammo: %s)" % [
-			char_data.ranged_weapons[0].weapon_name,
-			char_data.ranged_weapons[0].skill_level,
-			char_data.ranged_weapons[0].ammo_summary() if char_data.ranged_weapons[0].uses_magazines() else "—"]
-	_add_row.call("Right Hand:  %s" % rh_text)
-	_add_row.call("Left Hand:   [Fist]")
+	var equip_row := _make_item_row("Right Hand: " + rh_name, null)
+	_inv_list.add_child(equip_row)
+	_inv_list.add_child(_make_item_row("Left Hand:  [Fist]", null))
 
 	_inv_list.add_child(HSeparator.new())
-	_add_row.call("── Weapons Carried ──────────────")
+	_inv_list.add_child(_make_section_label("── Ranged Weapons ───────────"))
 
 	for weapon: RangedWeaponData in char_data.ranged_weapons:
-		_add_row.call("  %s  [Ranged]  Skill %d  Dmg %s" % [
-			weapon.weapon_name, weapon.skill_level, weapon.damage])
+		var label := "%s  Skill %d  Dmg %s  Ammo: %s" % [
+			weapon.weapon_name, weapon.skill_level, weapon.damage,
+			weapon.ammo_summary() if weapon.uses_magazines() else weapon.shots]
+		var w := weapon
+		var row := _make_item_row(label, func(): equip_weapon_requested.emit(w))
+		_inv_list.add_child(row)
+
+	_inv_list.add_child(HSeparator.new())
+	_inv_list.add_child(_make_section_label("── Melee Weapons ────────────"))
 
 	for weapon: MeleeWeaponData in char_data.melee_weapons:
-		_add_row.call("  %s: %s  Skill %d  Dmg %s" % [
-			weapon.weapon_name, weapon.mode, weapon.skill_level, weapon.damage])
+		var label := "%s: %s  Skill %d  Dmg %s" % [
+			weapon.weapon_name, weapon.mode, weapon.skill_level, weapon.damage]
+		var w := weapon
+		var row := _make_item_row(label, func(): equip_weapon_requested.emit(w))
+		_inv_list.add_child(row)
 
 	_inv_panel.visible = true
+
+
+func _make_section_label(text: String) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	return lbl
+
+
+func _make_item_row(item_text: String, equip_callback = null) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var lbl := Label.new()
+	lbl.text = item_text
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	row.add_child(lbl)
+	if equip_callback != null and equip_callback is Callable and equip_callback.is_valid():
+		var btn := Button.new()
+		btn.text = "Equip"
+		btn.pressed.connect(equip_callback)
+		row.add_child(btn)
+	return row

@@ -11,6 +11,7 @@ var movement_used: int = 0
 var token_color: Color = Color.CORNFLOWER_BLUE
 var _flash_timer: float = 0.0
 var _is_dead_visual: bool = false
+var is_aim_target: bool = false  # shows crosshair when someone is aiming at this token
 
 func _ready() -> void:
 	if not data:
@@ -75,6 +76,15 @@ func _draw() -> void:
 		var hp_text_size: Vector2 = font.get_string_size(hp_text, HORIZONTAL_ALIGNMENT_CENTER, -1, hp_font_size)
 		draw_string(font, Vector2(-hp_text_size.x / 2, bar_y + bar_height + hp_font_size + 1),
 			hp_text, HORIZONTAL_ALIGNMENT_CENTER, -1, hp_font_size, Color.WHITE)
+
+	# Aim crosshair (drawn on top, independent of data)
+	if is_aim_target:
+		var cr: float = radius * 1.1
+		var cross_color := Color(1.0, 0.3, 0.0, 0.9)
+		var cross_w := 2.0
+		draw_line(Vector2(-cr, -cr), Vector2(cr, cr), cross_color, cross_w, true)
+		draw_line(Vector2(cr, -cr), Vector2(-cr, cr), cross_color, cross_w, true)
+		draw_arc(Vector2.ZERO, cr, 0, TAU, 32, cross_color, cross_w, true)
 
 func place_on_hex(hex: Vector2i) -> void:
 	hex_pos = hex

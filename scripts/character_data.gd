@@ -39,6 +39,20 @@ var disadvantages: Array[String] = []
 var ranged_weapons: Array[RangedWeaponData] = []
 var melee_weapons: Array[MeleeWeaponData] = []
 
+# Currently held in right hand (null = use first available weapon as default)
+var right_hand_weapon: Resource = null  # RangedWeaponData or MeleeWeaponData
+
+## Returns the weapon currently in the right hand, falling back to first available.
+func get_right_hand() -> Resource:
+	if right_hand_weapon != null:
+		return right_hand_weapon
+	if ranged_weapons.size() > 0:
+		return ranged_weapons[0]
+	for w: MeleeWeaponData in melee_weapons:
+		if w.mode.to_lower() not in ["kick", "bite"]:
+			return w
+	return null
+
 # Injury tracking
 var wounds: Dictionary = {}             # String -> int (location -> accumulated injury)
 var crippled_locations: Array[String] = []
