@@ -16,6 +16,14 @@ enum Type {
 	WAIT,
 }
 
+enum AllOutDefenseOption {
+	NONE,
+	INCREASED_DODGE,
+	INCREASED_PARRY,
+	INCREASED_BLOCK,
+	DOUBLE_DEFENSE,
+}
+
 ## Movement allowance for each maneuver.
 ## -1 = no movement, 0 = step only (1 hex), 0.5 = half move, 1.0 = full move
 const MOVEMENT_ALLOWANCE: Dictionary = {
@@ -46,6 +54,14 @@ const NAMES: Dictionary = {
 	Type.WAIT: "Wait",
 }
 
+const ALL_OUT_DEFENSE_OPTION_NAMES: Dictionary = {
+	AllOutDefenseOption.NONE: "None",
+	AllOutDefenseOption.INCREASED_DODGE: "Increased Dodge",
+	AllOutDefenseOption.INCREASED_PARRY: "Increased Parry",
+	AllOutDefenseOption.INCREASED_BLOCK: "Increased Block",
+	AllOutDefenseOption.DOUBLE_DEFENSE: "Double Defense",
+}
+
 ## Get the maximum hexes a character can move for a given maneuver.
 ## step_distance is always 1.
 static func max_movement(maneuver_type: Type, basic_move: int) -> int:
@@ -57,6 +73,16 @@ static func max_movement(maneuver_type: Type, basic_move: int) -> int:
 	if allowance == 0.5:
 		return int(ceil(basic_move / 2.0))
 	return basic_move
+
+## Get movement for a specific All-Out Defense option.
+## Increased Dodge = half move, other options = step.
+static func all_out_defense_max_movement(option: AllOutDefenseOption, basic_move: int) -> int:
+	if option == AllOutDefenseOption.INCREASED_DODGE:
+		return int(ceil(basic_move / 2.0))
+	return 1
+
+static func get_all_out_defense_option_name(option: AllOutDefenseOption) -> String:
+	return String(ALL_OUT_DEFENSE_OPTION_NAMES.get(option, "Unknown"))
 
 ## Get available maneuvers given how many hexes have been moved.
 static func available_maneuvers(hexes_moved: int, basic_move: int) -> Array[Type]:

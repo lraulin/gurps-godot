@@ -14,6 +14,7 @@ signal combat_log_toggled()
 signal combat_popup_confirmed()
 signal equip_weapon_requested(weapon)
 signal cancel_attack()
+signal all_out_defense_option_selected(option: int)
 signal character_toggle_requested(index: int, enabled: bool)
 
 const BAR_HEIGHT := 120
@@ -332,6 +333,46 @@ func show_select_target_prompt() -> void:
 	lbl.text = "← Click an enemy to attack"
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_action_row.add_child(lbl)
+
+	var cancel := Button.new()
+	cancel.text = "Cancel"
+	cancel.pressed.connect(func(): cancel_attack.emit())
+	_action_row.add_child(cancel)
+
+
+func show_all_out_defense_options(can_take_step_option: bool) -> void:
+	## Show All-Out Defense option buttons.
+	_clear_action_row()
+
+	var lbl := Label.new()
+	lbl.text = "Choose All-Out Defense option:"
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_action_row.add_child(lbl)
+
+	var dodge_btn := Button.new()
+	dodge_btn.text = "Increased Dodge (half move)"
+	dodge_btn.pressed.connect(func(): all_out_defense_option_selected.emit(Maneuver.AllOutDefenseOption.INCREASED_DODGE))
+	_action_row.add_child(dodge_btn)
+
+	var parry_btn := Button.new()
+	parry_btn.text = "Increased Parry (step)"
+	parry_btn.disabled = not can_take_step_option
+	parry_btn.pressed.connect(func(): all_out_defense_option_selected.emit(Maneuver.AllOutDefenseOption.INCREASED_PARRY))
+	_action_row.add_child(parry_btn)
+
+	var block_btn := Button.new()
+	block_btn.text = "Increased Block (step)"
+	block_btn.disabled = not can_take_step_option
+	block_btn.pressed.connect(func(): all_out_defense_option_selected.emit(Maneuver.AllOutDefenseOption.INCREASED_BLOCK))
+	_action_row.add_child(block_btn)
+
+	var double_btn := Button.new()
+	double_btn.text = "Double Defense (step)"
+	double_btn.disabled = not can_take_step_option
+	double_btn.pressed.connect(func(): all_out_defense_option_selected.emit(Maneuver.AllOutDefenseOption.DOUBLE_DEFENSE))
+	_action_row.add_child(double_btn)
+
+	_action_row.add_child(_make_spacer())
 
 	var cancel := Button.new()
 	cancel.text = "Cancel"

@@ -30,6 +30,7 @@ var movement_used: int = 0
 
 # Defense state
 var all_out_defense: bool = false
+var all_out_defense_option: Maneuver.AllOutDefenseOption = Maneuver.AllOutDefenseOption.NONE
 var all_out_attack: bool = false
 var dodges_this_turn: int = 0
 
@@ -57,6 +58,7 @@ func reset_for_new_turn() -> void:
 	# Shock only lasts one turn
 	shock = 0
 	all_out_defense = false
+	all_out_defense_option = Maneuver.AllOutDefenseOption.NONE
 	all_out_attack = false
 	dodges_this_turn = 0
 	movement_used = 0

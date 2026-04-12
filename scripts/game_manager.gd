@@ -26,6 +26,7 @@ enum State {
 	PLAYER_TURN,             # move + choose maneuver
 	SELECTING_WEAPON,        # attack maneuver chosen; picking weapon + shots
 	SELECTING_ATTACK_TARGET, # weapon chosen; picking enemy to resolve
+	SELECTING_ALL_OUT_DEFENSE_OPTION,
 	STEP_AVAILABLE,          # attacked with no prior movement; 1-hex step allowed
 	TURN_OVER,               # done, waiting for End Turn
 }
@@ -49,6 +50,7 @@ func _ready() -> void:
 	ui.combat_popup_confirmed.connect(_on_combat_popup_confirmed)
 	ui.equip_weapon_requested.connect(_on_equip_weapon_requested)
 	ui.cancel_attack.connect(_on_cancel_attack)
+	ui.all_out_defense_option_selected.connect(_on_all_out_defense_option_selected)
 	ui.character_toggle_requested.connect(_on_character_toggle_requested)
 
 func add_character(token: CharacterToken, hex: Vector2i) -> void:
@@ -170,13 +172,7 @@ func _show_movement_zones() -> void:
 	var current_hex: Vector2i = selected_character.hex_pos
 	var moved: int = selected_character.movement_used
 
-	var max_remaining: int
-	if _state == State.STEP_AVAILABLE:
-		max_remaining = 1
-	elif _committed_maneuver == Maneuver.Type.ALL_OUT_ATTACK:
-		max_remaining = max(int(ceil(basic_move / 2.0)) - moved, 0)
-	else:
-		max_remaining = max(basic_move - moved, 0)
+	var max_remaining: int = max(_current_turn_max_movement(basic_move) - moved, 0)
 
 	var remaining_half: int = max(int(ceil(basic_move / 2.0)) - moved, 0)
 	var remaining_step: int = max(1 - moved, 0)
@@ -243,7 +239,10 @@ func _update_action_buttons() -> void:
 		selected_character.movement_used,
 		selected_character.data.effective_move()
 	)
-	ui.show_action_buttons(available)
+	if _committed_maneuver == Maneuver.Type.ALL_OUT_DEFENSE:
+		ui.show_action_buttons([])
+	else:
+		ui.show_action_buttons(available)
 
 # ─── Hex Clicks ───────────────────────────────────────────────────────────────
 
@@ -253,6 +252,8 @@ func _on_hex_clicked(hex: Vector2i) -> void:
 	match _state:
 		State.PLAYER_TURN:
 			_handle_movement_click(hex)
+		State.SELECTING_ALL_OUT_DEFENSE_OPTION:
+			pass
 		State.SELECTING_WEAPON:
 			pass  # no hex interaction during weapon/shots selection
 		State.STEP_AVAILABLE:
@@ -267,9 +268,7 @@ func _handle_movement_click(hex: Vector2i) -> void:
 		return
 
 	var basic_move: int = selected_character.data.effective_move()
-	var max_remaining: int = basic_move - selected_character.movement_used
-	if _committed_maneuver == Maneuver.Type.ALL_OUT_ATTACK:
-		max_remaining = int(ceil(basic_move / 2.0)) - selected_character.movement_used
+	var max_remaining: int = _current_turn_max_movement(basic_move) - selected_character.movement_used
 	max_remaining = max(max_remaining, 0)
 
 	var reachable: Dictionary = _bfs_reachable(selected_character.hex_pos, max_remaining)
@@ -363,13 +362,10 @@ func _on_maneuver_button_pressed(type: Maneuver.Type) -> void:
 			ui.show_message("Choose your weapon")
 
 		Maneuver.Type.ALL_OUT_DEFENSE:
-			_committed_maneuver = type
-			cstate.all_out_defense = true
-			combat_log.log_message("%s takes All-Out Defense (+2 to all defenses)" % selected_character.data.char_name)
-			_state = State.TURN_OVER
+			_state = State.SELECTING_ALL_OUT_DEFENSE_OPTION
 			hex_grid.clear_highlights()
-			ui.show_action_buttons([])
-			ui.show_message("All-Out Defense — click End Turn")
+			ui.show_all_out_defense_options(selected_character.movement_used <= 1)
+			ui.show_message("Choose All-Out Defense option")
 
 		Maneuver.Type.AIM:
 			if selected_character.data.ranged_weapons.size() == 0:
@@ -417,6 +413,31 @@ func _on_attack_mode_selected(weapon, mode: String) -> void:
 	_enter_target_selection()
 
 
+func _on_all_out_defense_option_selected(option: int) -> void:
+	if not selected_character:
+		return
+
+	var cstate: CombatantState = combat_states[selected_character] as CombatantState
+	var selected_option: Maneuver.AllOutDefenseOption = option as Maneuver.AllOutDefenseOption
+
+	if selected_option != Maneuver.AllOutDefenseOption.INCREASED_DODGE and selected_character.movement_used > 1:
+		ui.show_message("That All-Out Defense option is step-only")
+		return
+
+	_committed_maneuver = Maneuver.Type.ALL_OUT_DEFENSE
+	cstate.last_maneuver = Maneuver.Type.ALL_OUT_DEFENSE
+	cstate.all_out_defense = true
+	cstate.all_out_defense_option = selected_option
+
+	var option_name: String = Maneuver.get_all_out_defense_option_name(selected_option)
+	combat_log.log_message("%s takes All-Out Defense (%s)." % [selected_character.data.char_name, option_name])
+
+	_state = State.PLAYER_TURN
+	ui.show_action_buttons([])
+	_show_movement_zones()
+	ui.show_message("All-Out Defense (%s) — move, then End Turn" % option_name)
+
+
 func _on_shots_selected(count: int) -> void:
 	if _pending_weapon == null:
 		return
@@ -432,6 +453,12 @@ func _enter_target_selection() -> void:
 
 
 func _on_cancel_attack() -> void:
+	if _state == State.SELECTING_ALL_OUT_DEFENSE_OPTION:
+		_committed_maneuver = Maneuver.Type.DO_NOTHING
+		_state = State.PLAYER_TURN
+		_refresh_ui()
+		return
+
 	# From target selection or shots selector — go back to weapon options
 	if _state == State.SELECTING_ATTACK_TARGET or _pending_weapon != null:
 		_pending_target = null
@@ -578,6 +605,20 @@ func _resolve_attack(target: CharacterToken, weapon, mode: String, shots: int) -
 
 		ui.show_combat_popup(attack_result)
 		# State advances in _on_combat_popup_confirmed
+
+
+func _current_turn_max_movement(basic_move: int) -> int:
+	if _state == State.STEP_AVAILABLE:
+		return 1
+
+	if _committed_maneuver == Maneuver.Type.ALL_OUT_ATTACK:
+		return int(ceil(basic_move / 2.0))
+
+	if _committed_maneuver == Maneuver.Type.ALL_OUT_DEFENSE and selected_character:
+		var cstate: CombatantState = combat_states[selected_character] as CombatantState
+		return Maneuver.all_out_defense_max_movement(cstate.all_out_defense_option, basic_move)
+
+	return basic_move
 
 
 func _get_inferred_maneuver() -> Maneuver.Type:
