@@ -12,6 +12,8 @@ var turn_order: Array[CharacterToken] = []
 var current_turn_index: int = 0
 var selected_character: CharacterToken = null
 var occupied_hexes: Dictionary = {}  # Vector2i -> CharacterToken
+var character_enabled: Dictionary = {}  # CharacterToken -> bool
+var combat_started: bool = false
 
 var combat_states: Dictionary = {}  # CharacterToken -> CombatantState
 
@@ -47,6 +49,7 @@ func _ready() -> void:
 	ui.combat_popup_confirmed.connect(_on_combat_popup_confirmed)
 	ui.equip_weapon_requested.connect(_on_equip_weapon_requested)
 	ui.cancel_attack.connect(_on_cancel_attack)
+	ui.character_toggle_requested.connect(_on_character_toggle_requested)
 
 func add_character(token: CharacterToken, hex: Vector2i) -> void:
 	characters.append(token)
@@ -54,14 +57,17 @@ func add_character(token: CharacterToken, hex: Vector2i) -> void:
 	token.place_on_hex(hex)
 	occupied_hexes[hex] = token
 	combat_states[token] = CombatantState.new()
+	character_enabled[token] = true
+	_sync_character_toggle_menu()
 
 func start_combat() -> void:
-	turn_order = characters.duplicate()
-	turn_order.sort_custom(func(a: CharacterToken, b: CharacterToken) -> bool:
-		if a.data.speed_stat != b.data.speed_stat:
-			return a.data.speed_stat > b.data.speed_stat
-		return a.data.dx_stat > b.data.dx_stat
-	)
+	_rebuild_turn_order()
+	combat_started = true
+	if turn_order.is_empty():
+		hex_grid.clear_highlights()
+		ui.show_action_buttons([])
+		ui.show_message("No enabled characters. Enable one from Characters menu.")
+		return
 	current_turn_index = 0
 	_start_turn()
 
@@ -72,14 +78,17 @@ func _start_turn() -> void:
 	while attempts < turn_order.size():
 		var tok: CharacterToken = turn_order[current_turn_index]
 		var cst: CombatantState = combat_states[tok] as CombatantState
-		if tok.data.dead or cst.unconscious:
+		if not _is_character_enabled(tok) or tok.data.dead or cst.unconscious:
 			current_turn_index = (current_turn_index + 1) % turn_order.size()
 			attempts += 1
 			continue
 		break
 
 	if attempts >= turn_order.size():
-		combat_log.log_message("All characters are down. Combat over.")
+		combat_log.log_message("No enabled conscious characters available. Combat paused.")
+		hex_grid.clear_highlights()
+		ui.show_action_buttons([])
+		ui.show_message("Enable a character from Characters menu")
 		return
 
 	var token: CharacterToken = turn_order[current_turn_index]
@@ -121,12 +130,16 @@ func _start_turn() -> void:
 func _refresh_aim_crosshairs(aimer: CharacterToken, cstate: CombatantState) -> void:
 	# Clear all crosshairs first
 	for tok: CharacterToken in characters:
+		if not _is_character_enabled(tok):
+			continue
 		if tok.is_aim_target:
 			tok.is_aim_target = false
 			tok.queue_redraw()
 	# Set on aim target if aiming
 	if cstate.aim_target != null:
 		for tok: CharacterToken in characters:
+			if not _is_character_enabled(tok):
+				continue
 			if tok.data == cstate.aim_target:
 				tok.is_aim_target = true
 				tok.queue_redraw()
@@ -280,7 +293,7 @@ func _handle_target_click(hex: Vector2i) -> void:
 	if not occupied_hexes.has(hex):
 		return
 	var target_token: CharacterToken = occupied_hexes[hex] as CharacterToken
-	if target_token == selected_character or target_token.data.dead:
+	if not _is_character_enabled(target_token) or target_token == selected_character or target_token.data.dead:
 		return
 
 	var cstate: CombatantState = combat_states[selected_character] as CombatantState
@@ -302,6 +315,8 @@ func _handle_target_click(hex: Vector2i) -> void:
 			target_token.data.char_name, cstate.aim_turns, aim_bonus])
 		# Show crosshair on the aim target
 		for tok: CharacterToken in characters:
+			if not _is_character_enabled(tok):
+				continue
 			tok.is_aim_target = (tok == target_token)
 			tok.queue_redraw()
 		_state = State.TURN_OVER
@@ -490,6 +505,11 @@ func _on_end_turn() -> void:
 		if tok.is_aim_target:
 			tok.is_aim_target = false
 			tok.queue_redraw()
+	if turn_order.is_empty():
+		hex_grid.clear_highlights()
+		ui.show_action_buttons([])
+		ui.show_message("No enabled characters. Enable one from Characters menu.")
+		return
 	hex_grid.clear_highlights()
 	current_turn_index = (current_turn_index + 1) % turn_order.size()
 	_start_turn()
@@ -568,7 +588,7 @@ func _get_inferred_maneuver() -> Maneuver.Type:
 
 func _has_adjacent_enemy() -> bool:
 	for token: CharacterToken in characters:
-		if token == selected_character or token.data.dead:
+		if not _is_character_enabled(token) or token == selected_character or token.data.dead:
 			continue
 		if HexUtils.hex_distance(selected_character.hex_pos, token.hex_pos) <= 1:
 			return true
@@ -578,7 +598,7 @@ func _has_adjacent_enemy() -> bool:
 func _highlight_valid_targets() -> void:
 	var highlights: Dictionary = {}
 	for token: CharacterToken in characters:
-		if token == selected_character or token.data.dead:
+		if not _is_character_enabled(token) or token == selected_character or token.data.dead:
 			continue
 		var dist := HexUtils.hex_distance(selected_character.hex_pos, token.hex_pos)
 		# Filter by weapon range
@@ -591,3 +611,82 @@ func _highlight_valid_targets() -> void:
 				continue
 		highlights[token.hex_pos] = COLOR_TARGET
 	hex_grid.set_highlights(highlights)
+
+
+func _is_character_enabled(token: CharacterToken) -> bool:
+	return bool(character_enabled.get(token, true))
+
+
+func _rebuild_turn_order() -> void:
+	var previous_current: CharacterToken = null
+	if current_turn_index >= 0 and current_turn_index < turn_order.size():
+		previous_current = turn_order[current_turn_index]
+
+	turn_order.clear()
+	for token: CharacterToken in characters:
+		if _is_character_enabled(token):
+			turn_order.append(token)
+
+	turn_order.sort_custom(func(a: CharacterToken, b: CharacterToken) -> bool:
+		if a.data.speed_stat != b.data.speed_stat:
+			return a.data.speed_stat > b.data.speed_stat
+		return a.data.dx_stat > b.data.dx_stat
+	)
+
+	if turn_order.is_empty():
+		current_turn_index = 0
+		return
+
+	if previous_current != null and turn_order.has(previous_current):
+		current_turn_index = turn_order.find(previous_current)
+	else:
+		current_turn_index = clamp(current_turn_index, 0, turn_order.size() - 1)
+
+
+func _sync_character_toggle_menu() -> void:
+	var names: Array[String] = []
+	var enabled: Array[bool] = []
+	for token: CharacterToken in characters:
+		names.append(token.data.char_name)
+		enabled.append(_is_character_enabled(token))
+	ui.set_character_toggle_options(names, enabled)
+
+
+func _on_character_toggle_requested(index: int, enabled: bool) -> void:
+	if index < 0 or index >= characters.size():
+		return
+
+	var token: CharacterToken = characters[index]
+	character_enabled[token] = enabled
+	token.modulate = Color.WHITE if enabled else Color(1.0, 1.0, 1.0, 0.35)
+
+	if not enabled:
+		token.set_selected(false)
+		token.is_aim_target = false
+		token.queue_redraw()
+		if _pending_target == token:
+			_pending_target = null
+		if selected_character == token:
+			selected_character = null
+
+	_sync_character_toggle_menu()
+
+	if not combat_started:
+		return
+
+	_rebuild_turn_order()
+
+	if turn_order.is_empty():
+		hex_grid.clear_highlights()
+		ui.show_action_buttons([])
+		ui.show_message("No enabled characters. Enable one from Characters menu.")
+		return
+
+	if selected_character == null or not _is_character_enabled(selected_character):
+		_start_turn()
+		return
+
+	if _state == State.SELECTING_ATTACK_TARGET:
+		_highlight_valid_targets()
+
+	_refresh_ui()

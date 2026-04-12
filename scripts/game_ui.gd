@@ -14,6 +14,7 @@ signal combat_log_toggled()
 signal combat_popup_confirmed()
 signal equip_weapon_requested(weapon)
 signal cancel_attack()
+signal character_toggle_requested(index: int, enabled: bool)
 
 const BAR_HEIGHT := 120
 
@@ -30,6 +31,9 @@ var _attack_popup: AcceptDialog
 # Inventory panel
 var _inv_panel: PanelContainer
 var _inv_list: VBoxContainer
+
+var _char_names: Array[String] = []
+var _char_enabled: Array[bool] = []
 
 # State
 var _current_available: Array[Maneuver.Type] = []
@@ -124,6 +128,8 @@ func _build_action_buttons(available: Array[Maneuver.Type]) -> void:
 	log_btn.pressed.connect(func(): combat_log_toggled.emit())
 	_action_row.add_child(log_btn)
 
+	_action_row.add_child(_make_character_menu_button())
+
 	var inv_btn := Button.new()
 	inv_btn.text = "Inventory"
 	inv_btn.pressed.connect(func(): inventory_opened.emit())
@@ -133,6 +139,41 @@ func _build_action_buttons(available: Array[Maneuver.Type]) -> void:
 	end_btn.text = "End Turn"
 	end_btn.pressed.connect(func(): end_turn_pressed.emit())
 	_action_row.add_child(end_btn)
+
+
+func _make_character_menu_button() -> MenuButton:
+	var menu_btn := MenuButton.new()
+	menu_btn.text = "Characters"
+	var popup: PopupMenu = menu_btn.get_popup()
+	popup.id_pressed.connect(_on_character_menu_id_pressed)
+	_populate_character_menu(popup)
+	return menu_btn
+
+
+func _populate_character_menu(popup: PopupMenu) -> void:
+	popup.clear()
+	if _char_names.is_empty():
+		popup.add_item("No characters")
+		popup.set_item_disabled(0, true)
+		return
+
+	for i: int in range(_char_names.size()):
+		popup.add_check_item(_char_names[i], i)
+		var checked: bool = bool(_char_enabled[i]) if i < _char_enabled.size() else true
+		popup.set_item_checked(i, checked)
+
+
+func _on_character_menu_id_pressed(id: int) -> void:
+	if id < 0 or id >= _char_names.size():
+		return
+	var next_enabled: bool = true
+	if id < _char_enabled.size():
+		next_enabled = not _char_enabled[id]
+	else:
+		next_enabled = false
+	if id < _char_enabled.size():
+		_char_enabled[id] = next_enabled
+	character_toggle_requested.emit(id, next_enabled)
 
 
 func _clear_action_row() -> void:
@@ -150,6 +191,11 @@ func _make_spacer() -> Control:
 
 func show_action_buttons(available: Array[Maneuver.Type]) -> void:
 	_build_action_buttons(available)
+
+
+func set_character_toggle_options(names: Array[String], enabled: Array[bool]) -> void:
+	_char_names = names.duplicate()
+	_char_enabled = enabled.duplicate()
 
 
 func show_weapon_options(char_data: CharacterData, has_adjacent_target: bool) -> void:
