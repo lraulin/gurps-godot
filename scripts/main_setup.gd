@@ -88,6 +88,22 @@ func _ready() -> void:
 	var leon_token: CharacterToken = _make_token(leon, Color.DARK_ORANGE, "res://assets/leon-token-hex.webp")
 	manager.add_character(leon_token, Vector2i(2, -1))
 
+	# --- Dodgy McDodgerson ---
+	var dodgy: CharacterData = _make_character("Dodgy McDodgerson", 10, 13, 10, 13, 10, 7.0, 7, 0)
+	dodgy.will = 10
+	dodgy.per = 10
+	dodgy.fp = 13
+	dodgy.fp_max = 13
+	dodgy.advantages = ["Combat Reflexes"]
+	dodgy.skills = {
+		"Acrobatics": 16,
+		"Broadsword": 17
+	}
+	dodgy.melee_weapons.append(_make_melee("Broadsword", "Swing", "1d+1 cut", "1", 17, "0"))
+	dodgy.melee_weapons.append(_make_melee("Broadsword", "Thrust", "1d-1 cr", "1", 17, "0"))
+	var dodgy_token: CharacterToken = _make_token(dodgy, Color.DEEP_PINK)
+	manager.add_character(dodgy_token, Vector2i(-2, 0))
+
 	# --- T-Virus Zombies ---
 	var zombie_spawns: Array[Vector2i] = [Vector2i(4, -2), Vector2i(3, 2), Vector2i(5, 1)]
 	for i: int in range(zombie_spawns.size()):
